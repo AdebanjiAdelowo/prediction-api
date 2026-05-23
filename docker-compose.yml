@@ -1,0 +1,89 @@
+# Local development stack: FastAPI + PostgreSQL.
+#
+# Usage
+# ─────
+#   docker compose up --build          # first run (trains the model)
+#   docker compose up                  # subsequent runs (uses cached image)
+#   docker compose down -v             # stop + delete postgres volume
+#
+# The api service mounts ./app into the container so that uvicorn's --reload
+# picks up source changes without rebuilding the image.
+#
+# Linux note: if the mounted files are owned by a different UID than 1001
+# (the non-root user in the image), pass `user: "${UID}:${GID}"` here or
+# run `chmod -R o+r ./app`.
+
+services:
+
+  # ── FastAPI prediction API ───────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      target: runtime          # build through all stages; only keep the final one
+    image: prediction-api:dev
+    ports:
+      - "8000:8000"
+
+    volumes:
+      # Hot-reload: source changes are reflected immediately without a rebuild.
+      # model.pt is already baked into the image at /app/model.pt and is NOT
+      # affected by this mount.
+      - ./app:/app/app:ro
+
+    environment:
+      DATABASE_URL:      postgresql://postgres:postgres@postgres:5432/predictions
+      MODEL_PATH:        /app/model.pt
+      MODEL_VERSION:     "1.0.0"
+      MODEL_INPUT_DIM:   "4"
+      MODEL_NUM_CLASSES: "3"
+
+    # Override CMD to add --reload for live development.
+    command: >
+      uvicorn app.main:app
+        --host 0.0.0.0
+        --port 8000
+        --reload
+        --log-level info
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      start_period: 40s
+      retries: 3
+
+    restart: unless-stopped
+
+
+  # ── PostgreSQL 16 ────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"            # expose to host so you can connect with psql / pgAdmin
+
+    environment:
+      POSTGRES_USER:     postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB:       predictions
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d predictions"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+    restart: unless-stopped
+
+
+volumes:
+  postgres_data:
+    driver: local

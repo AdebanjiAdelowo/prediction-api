@@ -1,0 +1,35 @@
+# ── Version control ───────────────────────────────────────────────────────────
+.git/
+.github/
+
+# ── Python cache (rebuilt inside the image anyway) ────────────────────────────
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# ── Test suite (not shipped in the production image) ──────────────────────────
+tests/
+pytest.ini
+
+# ── Environment files (secrets must never leak into image layers) ─────────────
+.env
+.env.*
+!.env.example
+
+# ── Local build artefacts (model is trained inside the builder stage) ─────────
+model.pt
+
+# ── Infrastructure code ───────────────────────────────────────────────────────
+terraform/
+
+# ── Python virtual environments ───────────────────────────────────────────────
+.venv/
+venv/
+
+# ── IDE / OS noise ────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+.DS_Store
+*.md

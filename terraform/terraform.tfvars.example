@@ -1,0 +1,22 @@
+# Copy this file to terraform.tfvars and fill in your values.
+# terraform.tfvars is git-ignored — never commit real credentials.
+
+aws_region    = "us-east-1"
+project_name  = "prediction-api"
+environment   = "prod"
+instance_type = "t3.small"
+
+# Name of an EC2 Key Pair you created in the AWS console.
+# Leave as "" to launch without SSH access.
+key_name = ""
+
+# Restrict SSH to your own IP for production.
+# ssh_allowed_cidrs = ["203.0.113.42/32"]
+
+# GitHub identity for the OIDC trust policy.
+github_owner = "AdebanjiAdelowo"
+github_repo  = "prediction-api"
+
+# PostgreSQL connection string.  For a quick test you can use a local DB or
+# a managed service like RDS, Neon, or Supabase.
+# database_url = "postgresql://user:password@your-rds-endpoint.rds.amazonaws.com:5432/predictions"

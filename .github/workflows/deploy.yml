@@ -1,0 +1,149 @@
+# Builds the multi-stage Docker image, runs the full test suite, then pushes
+# to Amazon ECR — triggered only on pushes to the main branch so feature
+# branches never accidentally deploy.
+#
+# Authentication uses OIDC (no long-lived AWS keys stored as secrets).
+# Required GitHub repository secrets:
+#   AWS_ROLE_ARN  — from `terraform output github_actions_role_arn`
+#
+# Required GitHub repository variables (Settings → Variables):
+#   AWS_REGION    — must match var.aws_region in terraform (e.g. us-east-1)
+#   ECR_REPO      — must match var.project_name in terraform (e.g. prediction-api)
+
+name: CI/CD — Test → Build → Push to ECR
+
+on:
+  push:
+    branches: [main]
+
+# id-token: write is mandatory for the OIDC flow.
+# contents: read lets the runner check out the repository.
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+  ECR_REPO:   ${{ vars.ECR_REPO   || 'prediction-api' }}
+
+jobs:
+
+  # ── Job 1: run the full test suite ──────────────────────────────────────────
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER:     postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB:       predictions_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements-dev.txt') }}
+          restore-keys: ${{ runner.os }}-pip-
+
+      - name: Install PyTorch (CPU-only wheel — avoids downloading CUDA binaries)
+        run: pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Install project dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Train model weights
+        run: python train_model.py
+
+      - name: Run pytest
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/predictions_test
+        run: pytest -v --tb=short
+
+  # ── Job 2: build Docker image and push to ECR ────────────────────────────────
+  build-and-push:
+    name: Build & Push to ECR
+    runs-on: ubuntu-latest
+    needs: test          # gate: image is only pushed when all tests are green
+
+    outputs:
+      image_uri: ${{ steps.meta.outputs.image_uri }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Exchange the GitHub Actions OIDC token for temporary AWS credentials.
+      # No AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY secrets are needed.
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region:     ${{ env.AWS_REGION }}
+
+      - name: Log in to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # Build two tags: the immutable git-SHA tag for traceability and :latest
+      # for the EC2 user_data script (which always pulls :latest).
+      - name: Compute image tags
+        id: meta
+        env:
+          REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+        run: |
+          SHA_TAG="${REGISTRY}/${{ env.ECR_REPO }}:${{ github.sha }}"
+          LATEST="${REGISTRY}/${{ env.ECR_REPO }}:latest"
+          echo "image_uri=${SHA_TAG}"  >> "$GITHUB_OUTPUT"
+          echo "SHA_TAG=${SHA_TAG}"    >> "$GITHUB_ENV"
+          echo "LATEST_TAG=${LATEST}" >> "$GITHUB_ENV"
+
+      # Buildx enables BuildKit features: multi-stage caching, layer parallelism.
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # `target: runtime` builds all three stages (deps → trainer → runtime)
+      # but discards the first two — only the slim production layer is pushed.
+      # GitHub Actions cache (type=gha) persists the layer cache between runs
+      # so subsequent pushes only rebuild changed layers.
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target:  runtime
+          push:    true
+          tags: |
+            ${{ env.SHA_TAG }}
+            ${{ env.LATEST_TAG }}
+          cache-from: type=gha
+          cache-to:   type=gha,mode=max
+          provenance: false   # disable SBOM attestation for simpler ECR manifests
+
+      # Append a Markdown summary visible on the Actions run page.
+      - name: Write job summary
+        run: |
+          {
+            echo "## Docker image pushed :whale:"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| **SHA tag** | \`${{ env.SHA_TAG }}\` |"
+            echo "| **Latest**  | \`${{ env.LATEST_TAG }}\` |"
+            echo "| **Commit**  | ${{ github.sha }} |"
+            echo "| **Triggered by** | @${{ github.actor }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
