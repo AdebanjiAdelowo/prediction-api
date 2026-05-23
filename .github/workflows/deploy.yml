@@ -25,6 +25,7 @@ permissions:
 env:
   AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
   ECR_REPO:   ${{ vars.ECR_REPO   || 'prediction-api' }}
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
 
@@ -109,9 +110,9 @@ jobs:
         run: |
           SHA_TAG="${REGISTRY}/${{ env.ECR_REPO }}:${{ github.sha }}"
           LATEST="${REGISTRY}/${{ env.ECR_REPO }}:latest"
-          echo "image_uri=${SHA_TAG}"  >> "$GITHUB_OUTPUT"
-          echo "SHA_TAG=${SHA_TAG}"    >> "$GITHUB_ENV"
-          echo "LATEST_TAG=${LATEST}" >> "$GITHUB_ENV"
+          echo "image_uri=${SHA_TAG}" >> "$GITHUB_OUTPUT"
+          echo "sha_tag=${SHA_TAG}"   >> "$GITHUB_OUTPUT"
+          echo "latest_tag=${LATEST}" >> "$GITHUB_OUTPUT"
 
       # Buildx enables BuildKit features: multi-stage caching, layer parallelism.
       - name: Set up Docker Buildx
@@ -128,8 +129,8 @@ jobs:
           target:  runtime
           push:    true
           tags: |
-            ${{ env.SHA_TAG }}
-            ${{ env.LATEST_TAG }}
+            ${{ steps.meta.outputs.sha_tag }}
+            ${{ steps.meta.outputs.latest_tag }}
           cache-from: type=gha
           cache-to:   type=gha,mode=max
           provenance: false   # disable SBOM attestation for simpler ECR manifests
@@ -142,8 +143,8 @@ jobs:
             echo ""
             echo "| | |"
             echo "|---|---|"
-            echo "| **SHA tag** | \`${{ env.SHA_TAG }}\` |"
-            echo "| **Latest**  | \`${{ env.LATEST_TAG }}\` |"
+            echo "| **SHA tag** | \`${{ steps.meta.outputs.sha_tag }}\` |"
+            echo "| **Latest**  | \`${{ steps.meta.outputs.latest_tag }}\` |"
             echo "| **Commit**  | ${{ github.sha }} |"
             echo "| **Triggered by** | @${{ github.actor }} |"
           } >> "$GITHUB_STEP_SUMMARY"
