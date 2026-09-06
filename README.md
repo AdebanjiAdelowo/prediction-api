@@ -28,7 +28,7 @@ The fastest way to get the API and a PostgreSQL database running together.
 git clone https://github.com/AdebanjiAdelowo/prediction-api.git
 cd prediction-api
 
-# 2. Start the stack (builds image on first run — takes ~3 min to train the model)
+# 2. Start the stack (builds image on first run, takes ~3 min to train the model)
 docker compose up --build
 
 # 3. The API is now available at http://localhost:8000
@@ -68,7 +68,7 @@ python train_model.py
 
 # 5. Copy the example env file and edit DATABASE_URL
 cp .env.example .env
-# Edit .env — set DATABASE_URL to point at your local Postgres instance
+# Edit .env: set DATABASE_URL to point at your local Postgres instance
 
 # 6. Start the server
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
@@ -124,8 +124,8 @@ FastAPI generates interactive documentation automatically:
 
 | URL | Description |
 |-----|-------------|
-| `http://localhost:8000/docs` | Swagger UI — try endpoints in the browser |
-| `http://localhost:8000/redoc` | ReDoc — clean reference documentation |
+| `http://localhost:8000/docs` | Swagger UI: try endpoints in the browser |
+| `http://localhost:8000/redoc` | ReDoc: clean reference documentation |
 
 ---
 
@@ -219,17 +219,17 @@ terraform destroy
 
 Two GitHub Actions workflows are included.
 
-### `tests.yml` — runs on every push to any branch
+### `tests.yml`: runs on every push to any branch
 
 1. Spins up a PostgreSQL service container
 2. Installs CPU-only PyTorch + dev dependencies
 3. Trains `model.pt`
 4. Runs `pytest -v`
 
-### `deploy.yml` — runs on push to `main` only
+### `deploy.yml`: runs on push to `main` only
 
 1. Runs the same test suite (image is never pushed if tests fail)
-2. Authenticates with AWS via **OIDC** — no long-lived keys stored as secrets
+2. Authenticates with AWS via **OIDC**: no long-lived keys stored as secrets
 3. Builds the multi-stage Docker image (`deps → trainer → runtime`)
 4. Pushes two tags to ECR: `:latest` and `:<git-sha>`
 
@@ -242,34 +242,34 @@ The only secret required is `AWS_ROLE_ARN` (set up in the Terraform step above).
 ```
 prediction-api/
 ├── app/
-│   ├── config.py       — settings loaded from environment variables
-│   ├── database.py     — asyncpg connection pool, prediction logging
-│   ├── main.py         — FastAPI app, /health and /predict endpoints
-│   ├── predictor.py    — PyTorch model loading and inference
-│   └── schemas.py      — Pydantic request / response models
+│   ├── config.py      : settings loaded from environment variables
+│   ├── database.py    : asyncpg connection pool, prediction logging
+│   ├── main.py        : FastAPI app, /health and /predict endpoints
+│   ├── predictor.py   : PyTorch model loading and inference
+│   └── schemas.py     : Pydantic request / response models
 │
 ├── tests/
-│   ├── conftest.py     — mock predictor and database fixtures
-│   ├── test_health.py  — /health endpoint tests
-│   └── test_predict.py — /predict endpoint tests (valid + invalid inputs)
+│   ├── conftest.py    : mock predictor and database fixtures
+│   ├── test_health.py : /health endpoint tests
+│   └── test_predict.py: /predict endpoint tests (valid + invalid inputs)
 │
 ├── terraform/
-│   ├── main.tf         — AWS provider, data sources
-│   ├── ecr.tf          — ECR repository + lifecycle policy
-│   ├── s3.tf           — model artefact bucket
-│   ├── ec2.tf          — EC2 instance, security group, IAM role
-│   ├── oidc.tf         — GitHub Actions OIDC provider
-│   ├── variables.tf    — all input variables with descriptions
-│   ├── outputs.tf      — ECR URL, EC2 IP, role ARN, etc.
-│   └── user_data.sh.tpl — EC2 bootstrap: install Docker, pull image, run container
+│   ├── main.tf        : AWS provider, data sources
+│   ├── ecr.tf         : ECR repository + lifecycle policy
+│   ├── s3.tf          : model artefact bucket
+│   ├── ec2.tf         : EC2 instance, security group, IAM role
+│   ├── oidc.tf        : GitHub Actions OIDC provider
+│   ├── variables.tf   : all input variables with descriptions
+│   ├── outputs.tf     : ECR URL, EC2 IP, role ARN, etc.
+│   └── user_data.sh.tpl: EC2 bootstrap: install Docker, pull image, run container
 │
 ├── .github/workflows/
-│   ├── tests.yml       — run pytest on every push
-│   └── deploy.yml      — build + push to ECR on push to main
+│   ├── tests.yml      : run pytest on every push
+│   └── deploy.yml     : build + push to ECR on push to main
 │
-├── Dockerfile          — 3-stage: deps / trainer / runtime
-├── docker-compose.yml  — local dev: API + PostgreSQL
-├── train_model.py      — trains an Iris classifier, saves model.pt
-├── requirements.txt    — production dependencies
-└── requirements-dev.txt — adds pytest, httpx, scikit-learn
+├── Dockerfile         : 3-stage: deps / trainer / runtime
+├── docker-compose.yml : local dev: API + PostgreSQL
+├── train_model.py     : trains an Iris classifier, saves model.pt
+├── requirements.txt   : production dependencies
+└── requirements-dev.txt: adds pytest, httpx, scikit-learn
 ```
