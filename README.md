@@ -2,6 +2,24 @@
 
 A FastAPI service that loads a PyTorch classifier at startup, exposes a `POST /predict` endpoint, and logs every prediction to PostgreSQL.
 
+How the pieces connect. The model is trained inside the Docker build (`trainer` stage) and copied
+into the runtime image; nothing is downloaded at startup:
+
+```mermaid
+flowchart LR
+    subgraph CI["GitHub Actions"]
+        T["tests.yml / deploy.yml test job<br/>train model.pt, pytest"] --> BLD["deploy.yml, main only<br/>multi-stage build:<br/>deps → trainer → runtime"]
+    end
+    BLD -->|"OIDC role, push :latest and :sha"| ECR["Amazon ECR"]
+    subgraph AWS["AWS (terraform/)"]
+        ECR --> EC2["EC2 instance<br/>user_data: install Docker,<br/>pull image, run on :8000"]
+        EC2 -->|awslogs| CW["CloudWatch Logs<br/>/prediction-api"]
+        S3["S3 bucket for model artefacts<br/>(provisioned, not read by the app)"]
+    end
+    C["client"] -->|"POST /predict, GET /health"| EC2
+    EC2 -->|"asyncpg: INSERT into predictions"| PG[("PostgreSQL<br/>DATABASE_URL, not provisioned<br/>by Terraform")]
+```
+
 ---
 
 ## Contents
@@ -136,7 +154,7 @@ All settings are read from environment variables (or a `.env` file).
 | Variable | Default | Description |
 |---|---|---|
 | `MODEL_PATH` | `model.pt` | Path to the PyTorch weights file |
-| `MODEL_VERSION` | `1.0.0` | Version string returned by `/health` |
+| `MODEL_VERSION` | `1.0.0` | Version string returned by `/predict` (and used as the OpenAPI version) |
 | `MODEL_INPUT_DIM` | `4` | Number of input features the model expects |
 | `MODEL_NUM_CLASSES` | `3` | Number of output classes |
 | `DATABASE_URL` | `postgresql://postgres:postgres@localhost:5432/predictions` | PostgreSQL connection string |
@@ -169,7 +187,7 @@ DATABASE_URL=postgresql://postgres:postgres@localhost:5432/predictions_test \
 
 ## Deploy to AWS with Terraform
 
-Provisions an ECR repository, an S3 bucket for model artefacts, and an EC2 instance that pulls and runs the Docker image.
+Provisions an ECR repository, an S3 bucket intended for model artefacts, and an EC2 instance that pulls and runs the Docker image. The current application does not read from the S3 bucket: the model is trained during the Docker build and copied into the image. No database is provisioned; `database_url` must point at an existing PostgreSQL instance.
 
 **Prerequisites:** [Terraform ≥ 1.6](https://developer.hashicorp.com/terraform/install), [AWS CLI](https://aws.amazon.com/cli/) configured.
 
@@ -232,6 +250,8 @@ Two GitHub Actions workflows are included.
 2. Authenticates with AWS via **OIDC**: no long-lived keys stored as secrets
 3. Builds the multi-stage Docker image (`deps → trainer → runtime`)
 4. Pushes two tags to ECR: `:latest` and `:<git-sha>`
+
+The workflow stops at the push. It does not update the running EC2 container, which pulled its image once at first boot.
 
 The only secret required is `AWS_ROLE_ARN` (set up in the Terraform step above).
 
